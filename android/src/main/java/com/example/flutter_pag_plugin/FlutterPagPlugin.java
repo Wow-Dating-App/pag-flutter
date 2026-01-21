@@ -105,7 +105,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     final static String _eventUpdate = "onAnimationUpdate";
     final static String _eventFrameReady = "onFrameReady";
 
-    private boolean useCache = false;
+    private boolean useCache = false;  // 高版本flutter复用容器不稳定，关闭
     private int maxFreePoolSize = 10;
     private boolean reuseEnabled = false;  //flutter3.16有渲染bug，无法启用，且暂时与frameReady策略冲突
 
