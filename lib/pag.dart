@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
 
 class PAGView extends StatefulWidget {
   /// 宽高，不建议不设置
@@ -51,6 +52,7 @@ class PAGView extends StatefulWidget {
   /// 加载失败时的默认控件构造器
   final Widget Function(BuildContext context)? defaultBuilder;
 
+  final Function(Uint8List? audioBytes)? onAudioBytes;
   static const int REPEAT_COUNT_LOOP = -1; //无限循环
   static const int REPEAT_COUNT_DEFAULT = 1; //默认仅播放一次
 
@@ -70,6 +72,7 @@ class PAGView extends StatefulWidget {
     this.reuse = false,
     String? reuseKey,
     Key? key,
+    this.onAudioBytes,
   })  : this.bytesData = null,
         this.assetName = null,
         this.package = null,
@@ -93,6 +96,7 @@ class PAGView extends StatefulWidget {
     this.reuse = false,
     String? reuseKey,
     Key? key,
+    this.onAudioBytes,
   })  : this.bytesData = null,
         this.url = null,
         this.reuseKey = reuseKey ?? (package != null ? '$package$assetName' : assetName),
@@ -113,6 +117,7 @@ class PAGView extends StatefulWidget {
     this.onAnimationRepeat,
     this.defaultBuilder,
     Key? key,
+    this.onAudioBytes,
   })  : this.url = null,
         this.assetName = null,
         this.reuseKey = null,
@@ -137,6 +142,9 @@ class PAGViewState extends State<PAGView> {
   static bool checkAvailable = true;
 
   static const double defaultSize = 50;
+
+  // 音频队列管理器
+  static final _PAGAudioQueueManager _audioManager = _PAGAudioQueueManager();
 
   // 原生接口
   static const String _nativeInit = 'initPag';
@@ -183,6 +191,7 @@ class PAGViewState extends State<PAGView> {
   static const String _eventRepeat = 'onAnimationRepeat';
   static const String _eventUpdate = 'onAnimationUpdate';
   static const String _eventFrameReady = 'onFrameReady';
+  static const String _argumentAudioBytes = "audioBytes";
 
   // 回调监听
   static MethodChannel get _channel => (const MethodChannel('flutter_pag_plugin')
@@ -215,6 +224,8 @@ class PAGViewState extends State<PAGView> {
         _frameReady = true;
       });
     };
+    // 初始化音频管理器
+    _audioManager.init();
     newTexture();
   }
 
@@ -246,6 +257,13 @@ class PAGViewState extends State<PAGView> {
         _textureId = result[_argumentTextureId];
         rawWidth = result[_argumentWidth] ?? 0;
         rawHeight = result[_argumentHeight] ?? 0;
+        final Uint8List? audioBytes = result[_argumentAudioBytes];
+        if (audioBytes != null) {
+          // 触发音频播放
+           _audioManager.enqueueAudio(audioBytes, instanceId);
+          // 保留原始回调
+          widget.onAudioBytes?.call(audioBytes);
+        }
       }
       if (mounted) {
         setState(() {
@@ -288,6 +306,8 @@ class PAGViewState extends State<PAGView> {
       return;
     }
     _channel.invokeMethod(_nativeStop, {_argumentTextureId: _textureId});
+    // 停止音频播放
+    _audioManager.stop();
   }
 
   /// 暂停
@@ -311,7 +331,9 @@ class PAGViewState extends State<PAGView> {
     if (!_hasLoadTexture) {
       return [];
     }
-    return (await _channel.invokeMethod(_nativeGetPointLayer, {_argumentTextureId: _textureId, _argumentPointX: x, _argumentPointY: y}) as List).map((e) => e.toString()).toList();
+    return (await _channel.invokeMethod(_nativeGetPointLayer, {_argumentTextureId: _textureId, _argumentPointX: x, _argumentPointY: y}) as List)
+        .map((e) => e.toString())
+        .toList();
   }
 
   void notifyRelease() {
@@ -328,18 +350,18 @@ class PAGViewState extends State<PAGView> {
   Widget build(BuildContext context) {
     if (_hasLoadTexture) {
       if (_isAvailable()) {
-        return SizedBox (
+        return SizedBox(
           width: widget.width ?? (rawWidth / 2),
           height: widget.height ?? (rawHeight / 2),
           child: Texture(textureId: _textureId),
         );
       } else {
-        return widget.defaultBuilder?.call(context) ?? SizedBox(
-          width: widget.width ?? (rawWidth / 2),
-          height: widget.height ?? (rawHeight / 2),
-        );
+        return widget.defaultBuilder?.call(context) ??
+            SizedBox(
+              width: widget.width ?? (rawWidth / 2),
+              height: widget.height ?? (rawHeight / 2),
+            );
       }
-
     } else {
       return widget.defaultBuilder?.call(context) ??
           SizedBox(
@@ -362,6 +384,89 @@ class PAGViewState extends State<PAGView> {
 }
 
 typedef PAGCallback = void Function();
+
+// 自定义字节数组音频源
+class _BytesAudioSource extends StreamAudioSource {
+  final Uint8List _bytes;
+
+  _BytesAudioSource(this._bytes);
+
+  @override
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    return StreamAudioResponse(
+      sourceLength: _bytes.length,
+      contentLength: end ?? _bytes.length,
+      offset: start ?? 0,
+      stream: Stream.value(_bytes.sublist(start ?? 0, end ?? _bytes.length)),
+      contentType: 'audio/mpeg',
+    );
+  }
+}
+
+// 音频播放队列管理器
+class _PAGAudioQueueManager {
+  static final _PAGAudioQueueManager _instance = _PAGAudioQueueManager._internal();
+  factory _PAGAudioQueueManager() => _instance;
+  _PAGAudioQueueManager._internal();
+
+  final AudioPlayer _player = AudioPlayer();
+  final List<Uint8List> _audioQueue = [];
+  bool _isPlaying = false;
+
+  /// 添加音频到队列
+  void enqueueAudio(Uint8List audioBytes, int viewId) {
+    _audioQueue.add(audioBytes);
+    _playNext();
+  }
+
+  /// 播放下一个音频
+  void _playNext() async {
+    if (_isPlaying || _audioQueue.isEmpty) {
+      return;
+    }
+
+    _isPlaying = true;
+    final audioBytes = _audioQueue.removeAt(0);
+
+    try {
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.dataFromBytes(
+            audioBytes,
+            mimeType: 'audio/mp4', // 使用 audio/mp4
+          ),
+        ),
+      );
+      _player.play();
+    } catch (e) {
+      print('PAGAudioQueueManager play error: $e');
+      _isPlaying = false;
+      _playNext(); // 播放失败，继续播放下一个
+    }
+  }
+
+  /// 停止并清空队列
+  void stop() {
+    _player.stop();
+    _audioQueue.clear();
+    _isPlaying = false;
+  }
+
+  /// 初始化播放器监听
+  void init() {
+    _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.completed ||
+          state.processingState == ProcessingState.idle) {
+        _isPlaying = false;
+        _playNext(); // 当前播放完成，播放下一个
+      }
+    });
+  }
+
+  void dispose() {
+    _player.dispose();
+  }
+}
 
 // PAG设置
 class PAG {

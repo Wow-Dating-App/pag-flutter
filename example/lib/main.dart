@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pag/pag.dart';
@@ -32,76 +31,78 @@ class MyHome extends StatefulWidget {
 ///PAG用于ListView，用于测试加载速度
 class _MyListHomeState extends State<MyHome> {
   bool visible = false;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        SizedBox(
+          height: 100,
+        ),
         TextButton(
           child: Container(
             width: 100,
             height: 50,
             alignment: Alignment.center,
             color: Color.fromARGB(255, 100, 255, 100),
-            child: Text(
-                'Test'
-            ),
+            child: Text('Test'),
           ),
-          onPressed: (){
+          onPressed: () {
             setState(() {
               visible = !visible;
             });
           },
-
         ),
         Expanded(
             child: Visibility(
-              visible: visible,
-              child: ListView.builder(
-                  itemCount: 300,
-                  // cacheExtent: 3000.0,
-                  itemBuilder: (context, index) {
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        PAGView.asset(
-                          'data/${index % 5}.pag',
-                          width: (index % 7) * 10 + 10,
-                          height: (index % 7) * 10 + 10,
-                          // 'data/large.pag',
-                          repeatCount: PAGView.REPEAT_COUNT_LOOP,
-                          initProgress: 0.25,
-                          autoPlay: true,
-                          // reuse: index % 4 != 0,
-                          key: ValueKey(index),
-                        ),
-                        Visibility(child: PAGView.network(
-                          "https://svipwebwx-30096.sz.gfp.tencent-cloud.com/file1647585475981.pag",
-                          repeatCount: PAGView.REPEAT_COUNT_LOOP,
-                          initProgress: 0.25,
-                          // width: 100,
-                          // height: 100,
-                          autoPlay: true,
-                          key: ValueKey(index),
-                        ),
-                          visible: index % 6 == 0,
-                        )
-                      ],
-                    );
-                  }
-              ),
-            )
-        ),
+          visible: visible,
+          child: ListView.builder(
+              itemCount: 1,
+              // cacheExtent: 3000.0,
+              itemBuilder: (context, index) {
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    PAGView.asset(
+                      'data/test.pag',
+                      width: 200,
+                      height: 200,
+                      // 'data/large.pag',
+                      repeatCount: PAGView.REPEAT_COUNT_DEFAULT,
+                      initProgress: 0.25,
+                      autoPlay: true,
+
+                      // reuse: index % 4 != 0,
+                      key: ValueKey(index),
+                      onAudioBytes: (audioBytes) async {
+                        print('onAudioBytes: ${audioBytes}');
+                      },
+                    ),
+                    // Visibility(child: PAGView.network(
+                    //   "https://svipwebwx-30096.sz.gfp.tencent-cloud.com/file1647585475981.pag",
+                    //   repeatCount: PAGView.REPEAT_COUNT_LOOP,
+                    //   initProgress: 0.25,
+                    //   // width: 100,
+                    //   // height: 100,
+                    //   autoPlay: true,
+                    //   key: ValueKey(index),
+                    // ),
+                    //   visible: index % 6 == 0,
+                    // )
+                  ],
+                );
+              }),
+        )),
       ],
     );
   }
-
 }
 
 class _MyHomeState extends State<MyHome> {
-
   GlobalKey<PAGViewState> _fansDanceKey = GlobalKey<PAGViewState>(debugLabel: _assetFans);
   GlobalKey<PAGViewState> _assetDanceKey = GlobalKey<PAGViewState>(debugLabel: _assetFans);
+
   GlobalKey<PAGViewState> get assetPagKey => _pagAsset == _assetFans ? _fansDanceKey : _assetDanceKey;
 
   final GlobalKey<PAGViewState> networkPagKey = GlobalKey<PAGViewState>();
@@ -301,7 +302,6 @@ class _MyHomeState extends State<MyHome> {
                 ),
               ),
 
-
               /// TODO: PAGView加载二进制资源
               Padding(
                 padding: EdgeInsets.only(top: 20, left: 12, bottom: 20),
@@ -318,7 +318,7 @@ class _MyHomeState extends State<MyHome> {
                   repeatCount: PAGView.REPEAT_COUNT_LOOP,
                   initProgress: 0.25,
                   autoPlay: true,
-                  defaultBuilder: (context){
+                  defaultBuilder: (context) {
                     return Container(
                       color: Colors.grey,
                       alignment: Alignment.center,

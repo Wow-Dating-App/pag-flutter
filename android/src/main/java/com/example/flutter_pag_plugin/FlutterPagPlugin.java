@@ -15,6 +15,7 @@ import org.libpag.PAGLayer;
 import org.libpag.PAGSurface;
 
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -104,6 +105,8 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     final static String _eventRepeat = "onAnimationRepeat";
     final static String _eventUpdate = "onAnimationUpdate";
     final static String _eventFrameReady = "onFrameReady";
+
+    final static String _argumentAudioBytes = "audioBytes";
 
     private boolean useCache = false;
     private int maxFreePoolSize = 10;
@@ -373,35 +376,41 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
             pagPlayer.init(composition, repeatCount, initProgress, channel, Long.parseLong(currentId));
             pagPlayer.updateBufferSize();
 
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    notifyFrameReady(Long.parseLong(currentId), viewId);
-                    if (autoPlay) {
-                        pagPlayer.start();
-                    }
-                    final HashMap<String, Object> callback = new HashMap<String, Object>();
-                    callback.put(_argumentTextureId, Long.parseLong(currentId));
-                    callback.put(_argumentWidth, (double) composition.width());
-                    callback.put(_argumentHeight, (double) composition.height());
-                    result.success(callback);
-                    if (reuseEnabled && reuse && reuseKey != null && !reuseKey.isEmpty()) {
-                        ReuseItem reuseItem = reuseMap.get(reuseKey);
-                        if (reuseItem != null) {
-                            reuseItem.init(Long.parseLong(currentId), composition.width(), composition.height());
-                            List<Result> list = resultMap.get(reuseKey);
-                            if (list != null) {
-                                for (Result r : list) {
-                                    r.success(callback);
-                                }
-                                list.clear();
-                                resultMap.remove(reuseKey);
+            ByteBuffer audioBytes = composition.audioBytes();
+            final HashMap<String, Object> callback = new HashMap<>();
+
+            if (audioBytes != null) {
+                byte[] bytes = bytebuffer2ByteArray(audioBytes);
+                Log.d("debug", "-->debug byte.len=" + bytes.length);
+                if (bytes.length > 0) {
+                    callback.put(_argumentAudioBytes, bytes);
+                }
+            }
+            handler.post(() -> {
+                notifyFrameReady(Long.parseLong(currentId), viewId);
+                if (autoPlay) {
+                    pagPlayer.start();
+                }
+                callback.put(_argumentTextureId, Long.parseLong(currentId));
+                callback.put(_argumentWidth, (double) composition.width());
+                callback.put(_argumentHeight, (double) composition.height());
+                result.success(callback);
+                if (reuseEnabled && reuse && reuseKey != null && !reuseKey.isEmpty()) {
+                    ReuseItem reuseItem = reuseMap.get(reuseKey);
+                    if (reuseItem != null) {
+                        reuseItem.init(Long.parseLong(currentId), composition.width(), composition.height());
+                        List<Result> list = resultMap.get(reuseKey);
+                        if (list != null) {
+                            for (Result r : list) {
+                                r.success(callback);
                             }
-                        } else {
-                            reuseItem = new ReuseItem(Long.parseLong(currentId), composition.width(), composition.height());
-                            reuseItem.usingViewSet.add(viewId);
-                            reuseMap.put(reuseKey, reuseItem);
+                            list.clear();
+                            resultMap.remove(reuseKey);
                         }
+                    } else {
+                        reuseItem = new ReuseItem(Long.parseLong(currentId), composition.width(), composition.height());
+                        reuseItem.usingViewSet.add(viewId);
+                        reuseMap.put(reuseKey, reuseItem);
                     }
                 }
             });
@@ -409,7 +418,28 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
 
 
     }
-
+    /**
+     * byteBuffer 转 byte数组
+     *
+     * @param buffer
+     * @return
+     */
+    public static byte[] bytebuffer2ByteArray(ByteBuffer buffer) {
+//        //重置 limit 和postion 值
+//        buffer.flip();
+//        //获取buffer中有效大小
+//        int len = buffer.limit() - buffer.position();
+//
+//        byte[] bytes = new byte[len];
+//
+//        for (int i = 0; i < bytes.length; i++) {
+//            bytes[i] = buffer.get();
+//        }
+//        return bytes;
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        return bytes;
+    }
     private void notifyFrameReady(long textureId, int viewId) {
         final HashMap<String, Object> arguments = new HashMap<>();
         arguments.put(FlutterPagPlugin._argumentTextureId, textureId);
