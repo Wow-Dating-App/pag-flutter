@@ -27,8 +27,6 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry;
-import io.flutter.view.FlutterNativeView;
 import io.flutter.view.TextureRegistry;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
@@ -44,7 +42,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     private MethodChannel channel;
     TextureRegistry textureRegistry;
     Context context;
-    io.flutter.plugin.common.PluginRegistry.Registrar registrar;
+//    io.flutter.plugin.common.PluginRegistry.Registrar registrar;
     FlutterPlugin.FlutterAssets flutterAssets;
     private Handler handler = new Handler(Looper.getMainLooper());
 
@@ -52,7 +50,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     public static List<FlutterPagPlugin> pluginList = new ArrayList<FlutterPagPlugin>();
 
     private final HashMap<String, FlutterPagPlayer> layerMap = new HashMap<String, FlutterPagPlayer>();
-    private final HashMap<String, TextureRegistry.SurfaceTextureEntry> entryMap = new HashMap<String, TextureRegistry.SurfaceTextureEntry>();
+    private final HashMap<String, TextureRegistry.SurfaceProducer> entryMap = new HashMap<>();
     //用于记录当前缓存可用的entry id
     private final LinkedList<String>  freeEntryPool = new LinkedList<>();
     //由于进入缓存池之前的entry清理是异步的，先放入此pool以避免超过缓存上限
@@ -107,23 +105,26 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     final static String _eventUpdate = "onAnimationUpdate";
     final static String _eventFrameReady = "onFrameReady";
 
-    private boolean useCache = true;
+    private volatile boolean isEngineAttached = false;
+
+    private boolean useCache = false;  // 高版本flutter复用容器不稳定，关闭
     private int maxFreePoolSize = 10;
     private boolean reuseEnabled = false;  //flutter3.16有渲染bug，无法启用，且暂时与frameReady策略冲突
 
     public FlutterPagPlugin() {
     }
 
-    public FlutterPagPlugin(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
-        pluginList.add(this);
-        this.registrar = registrar;
-        textureRegistry = registrar.textures();
-        context = registrar.context();
-        DataLoadHelper.INSTANCE.initDiskCache(context, DataLoadHelper.INSTANCE.DEFAULT_DIS_SIZE);
-    }
+//    public FlutterPagPlugin(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
+//        pluginList.add(this);
+//        this.registrar = registrar;
+//        textureRegistry = registrar.textures();
+//        context = registrar.context();
+//        DataLoadHelper.INSTANCE.initDiskCache(context, DataLoadHelper.INSTANCE.DEFAULT_DIS_SIZE);
+//    }
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+        isEngineAttached = true;
         if (!pluginList.contains(this)) {
             pluginList.add(this);
         }
@@ -135,17 +136,17 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
         DataLoadHelper.INSTANCE.initDiskCache(context, DataLoadHelper.INSTANCE.DEFAULT_DIS_SIZE);
     }
 
-    public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
-        final FlutterPagPlugin plugin = new FlutterPagPlugin(registrar);
-        registrar.addViewDestroyListener(new PluginRegistry.ViewDestroyListener() {
-            @Override
-            public boolean onViewDestroy(FlutterNativeView flutterNativeView) {
-                plugin.onDestroy();
-                pluginList.remove(this);
-                return false; // We are not interested in assuming ownership of the NativeView.
-            }
-        });
-    }
+//    public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
+//        final FlutterPagPlugin plugin = new FlutterPagPlugin(registrar);
+//        registrar.addViewDestroyListener(new PluginRegistry.ViewDestroyListener() {
+//            @Override
+//            public boolean onViewDestroy(FlutterNativeView flutterNativeView) {
+//                plugin.onDestroy();
+//                pluginList.remove(this);
+//                return false; // We are not interested in assuming ownership of the NativeView.
+//            }
+//        });
+//    }
 
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
@@ -256,13 +257,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
             initPagPlayerAndCallback(PAGFile.Load(bytes), call, result);
         } else if (assetName != null) {
             String assetKey;
-            if (registrar != null) {
-                if (flutterPackage == null || flutterPackage.isEmpty()) {
-                    assetKey = registrar.lookupKeyForAsset(assetName);
-                } else {
-                    assetKey = registrar.lookupKeyForAsset(assetName, flutterPackage);
-                }
-            } else if (flutterAssets != null) {
+            if (flutterAssets != null) {
                 if (flutterPackage == null || flutterPackage.isEmpty()) {
                     assetKey = flutterAssets.getAssetFilePathByName(assetName);
                 } else {
@@ -278,7 +273,10 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
             }
             WorkThreadExecutor.getInstance().post(() -> {
                 PAGFile composition = PAGFile.Load(context.getAssets(), assetKey);
-                handler.post(() -> initPagPlayerAndCallback(composition, call, result));
+                handler.post(() -> {
+                    if (!isEngineAttached) return;
+                    initPagPlayerAndCallback(composition, call, result);
+                });
             });
         } else if (url != null) {
             DataLoadHelper.INSTANCE.loadPag(url, new Function1<byte[], Unit>() {
@@ -287,6 +285,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
                     handler.post(new Runnable() {
                         @Override
                         public void run() {
+                            if (!isEngineAttached) return;
                             if (bytes == null) {
                                 error(call, result, "-1100", "url资源加载错误: " + url, null);
                                 return;
@@ -305,6 +304,10 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     }
 
     private void initPagPlayerAndCallback(PAGFile composition, MethodCall call, final Result result) {
+        if (!isEngineAttached) {
+            Log.w("FlutterPagPlugin", "Engine already detached, skip initPagPlayerAndCallback");
+            return;
+        }
         if (composition == null) {
             error(call, result, "-1100", "load composition is null! " + call.argument(_argumentAssetName), null);
             return;
@@ -320,47 +323,44 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
         final int viewId = call.argument(_argumentViewId);
         final FlutterPagPlayer pagPlayer;
         final String currentId;
+        final TextureRegistry.SurfaceProducer entry;
 
         if (freeEntryPool.isEmpty() || !useCache) {
             pagPlayer = new FlutterPagPlayer();
-            final TextureRegistry.SurfaceTextureEntry entry = textureRegistry.createSurfaceTexture();
+            entry = textureRegistry.createSurfaceProducer();
             currentId = String.valueOf(entry.id());
             entryMap.put(String.valueOf(entry.id()), entry);
-            SurfaceTexture surfaceTexture = entry.surfaceTexture();
-            SurfaceTexture.OnFrameAvailableListener listener = null;
-            try {
-                Class<?> surfaceTextureClass = entry.getClass();
-                Field handlerField = surfaceTextureClass.getDeclaredField("onFrameListener");
-                handlerField.setAccessible(true);
-                listener = (SurfaceTexture.OnFrameAvailableListener) handlerField.get(entry);
-            } catch (NoSuchFieldException | IllegalAccessException e) {
-                e.printStackTrace();
-            }
-            SurfaceTexture.OnFrameAvailableListener finalH = listener;
-            surfaceTexture.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
-                private boolean isFirstCall = true;
-                @Override
-                public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-                    if (finalH != null) {
-                        finalH.onFrameAvailable(surfaceTexture);
-                    }
+//            SurfaceTexture.OnFrameAvailableListener listener = null;
+//            try {
+//                Class<?> surfaceTextureClass = entry.getClass();
+//                Field handlerField = surfaceTextureClass.getDeclaredField("onFrameListener");
+//                handlerField.setAccessible(true);
+//                listener = (SurfaceTexture.OnFrameAvailableListener) handlerField.get(entry);
+//            } catch (NoSuchFieldException | IllegalAccessException e) {
+//                e.printStackTrace();
+//            }
+//            SurfaceTexture.OnFrameAvailableListener finalH = listener;
+//            surfaceTexture.setOnFrameAvailableListener(new SurfaceTexture.OnFrameAvailableListener() {
+//                private boolean isFirstCall = true;
+//                @Override
+//                public void onFrameAvailable(SurfaceTexture surfaceTexture) {
+//                    if (finalH != null) {
+//                        finalH.onFrameAvailable(surfaceTexture);
+//                    }
+//
+//                    //该listener会不断回调，给flutter的通信只需要一次，避免冗余调用
+//                    if (!isFirstCall) return;
+//                    isFirstCall = false;
+//                    handler.post(() -> {
+//                        notifyFrameReady(entry.id(), viewId);
+//                    });
+//                }
+//            });
 
-                    //该listener会不断回调，给flutter的通信只需要一次，避免冗余调用
-                    if (!isFirstCall) return;
-                    isFirstCall = false;
-                    handler.post(() -> {
-                        notifyFrameReady(entry.id(), viewId);
-                    });
-                }
-            });
-
-            final Surface surface = new Surface(surfaceTexture);
-            final PAGSurface pagSurface = PAGSurface.FromSurface(surface);
-            pagPlayer.setSurface(pagSurface);
-            pagPlayer.setSurfaceTexture(surfaceTexture);
             layerMap.put(String.valueOf(entry.id()), pagPlayer);
         } else {
             currentId = freeEntryPool.removeFirst();
+            entry = entryMap.get(currentId);
             preFreeEntryPool.remove(currentId);
             pagPlayer = layerMap.get(currentId);
             if (pagPlayer == null) {
@@ -374,13 +374,21 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
             notifyFrameReady(Long.parseLong(currentId), viewId);
         }
 
+        if (entry != null) {
+            entry.setSize(composition.width(), composition.height());
+            Surface surface = entry.getSurface();
+            final PAGSurface pagSurface = PAGSurface.FromSurface(surface);
+            pagPlayer.setSurface(pagSurface);
+        }
         WorkThreadExecutor.getInstance().post(() -> {
-            pagPlayer.updateBufferSize(composition.width(), composition.height());
             pagPlayer.init(composition, repeatCount, initProgress, channel, Long.parseLong(currentId));
+            pagPlayer.updateBufferSize();
 
             handler.post(new Runnable() {
                 @Override
                 public void run() {
+                    if (!isEngineAttached) return;
+                    notifyFrameReady(Long.parseLong(currentId), viewId);
                     if (autoPlay) {
                         pagPlayer.start();
                     }
@@ -511,7 +519,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
                 flutterPagPlayer.release();
             }
 
-            TextureRegistry.SurfaceTextureEntry entry = entryMap.remove(getTextureId(call));
+            TextureRegistry.SurfaceProducer entry = entryMap.remove(getTextureId(call));
             if (entry != null) {
                 entry.release();
             }
@@ -556,7 +564,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
         for (FlutterPagPlayer pagPlayer : layerMap.values()) {
             pagPlayer.release();
         }
-        for (TextureRegistry.SurfaceTextureEntry entry : entryMap.values()) {
+        for (TextureRegistry.SurfaceProducer entry : entryMap.values()) {
             entry.release();
         }
         freeEntryPool.clear();
@@ -569,6 +577,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
 
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        isEngineAttached = false;
         onDestroy();
     }
 

@@ -1,18 +1,18 @@
 group 'com.example.flutter_pag_plugin'
 version '1.0'
 
-buildscript {
-    repositories {
-        google()
-        jcenter()
-        mavenCentral()
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:4.1.0'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.6.10"
-    }
-}
+//buildscript {
+//    repositories {
+//        google()
+//        jcenter()
+//        mavenCentral()
+//    }
+//
+//    dependencies {
+//        classpath 'com.android.tools.build:gradle:7.3.0'
+//        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.10"
+//    }
+//}
 
 rootProject.allprojects {
     repositories {
@@ -25,15 +25,19 @@ apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 
 android {
-    compileSdkVersion 30
+    namespace "com.example.flutter_pag_plugin"
+    compileSdkVersion 35
 
     defaultConfig {
         minSdkVersion 19
     }
     buildToolsVersion '28.0.3'
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
     }
 }
 
