@@ -14,9 +14,9 @@ dependencies:
     pag:
       git:
         url: https://github.com/libpag/pag-flutter.git
-        ref: v1.0.9+4
+        ref: v1.0.9+flutter3.29
 ```
-flutter3.29+ 版本请依赖 v1.0.9+flutter3.29
+老flutter 版本请依赖 v1.0.9+4
 
 Android端混淆文件中配置，避免影响
 ```

@@ -108,7 +108,9 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
 
     final static String _argumentAudioBytes = "audioBytes";
 
-    private boolean useCache = false;
+    private volatile boolean isEngineAttached = false;
+
+    private boolean useCache = false;  // 高版本flutter复用容器不稳定，关闭
     private int maxFreePoolSize = 10;
     private boolean reuseEnabled = false;  //flutter3.16有渲染bug，无法启用，且暂时与frameReady策略冲突
 
@@ -125,6 +127,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
+        isEngineAttached = true;
         if (!pluginList.contains(this)) {
             pluginList.add(this);
         }
@@ -273,7 +276,10 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
             }
             WorkThreadExecutor.getInstance().post(() -> {
                 PAGFile composition = PAGFile.Load(context.getAssets(), assetKey);
-                handler.post(() -> initPagPlayerAndCallback(composition, call, result));
+                handler.post(() -> {
+                    if (!isEngineAttached) return;
+                    initPagPlayerAndCallback(composition, call, result);
+                });
             });
         } else if (url != null) {
             DataLoadHelper.INSTANCE.loadPag(url, new Function1<byte[], Unit>() {
@@ -282,6 +288,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
                     handler.post(new Runnable() {
                         @Override
                         public void run() {
+                            if (!isEngineAttached) return;
                             if (bytes == null) {
                                 error(call, result, "-1100", "url资源加载错误: " + url, null);
                                 return;
@@ -300,6 +307,10 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
     }
 
     private void initPagPlayerAndCallback(PAGFile composition, MethodCall call, final Result result) {
+        if (!isEngineAttached) {
+            Log.w("FlutterPagPlugin", "Engine already detached, skip initPagPlayerAndCallback");
+            return;
+        }
         if (composition == null) {
             error(call, result, "-1100", "load composition is null! " + call.argument(_argumentAssetName), null);
             return;
@@ -387,6 +398,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
                 }
             }
             handler.post(() -> {
+                if (!isEngineAttached) return;
                 notifyFrameReady(Long.parseLong(currentId), viewId);
                 if (autoPlay) {
                     pagPlayer.start();
@@ -595,6 +607,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
 
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        isEngineAttached = false;
         onDestroy();
     }
 
