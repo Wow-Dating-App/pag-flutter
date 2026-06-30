@@ -13,6 +13,7 @@ import androidx.annotation.Nullable;
 import org.libpag.PAGFile;
 import org.libpag.PAGLayer;
 import org.libpag.PAGSurface;
+import org.libpag.VideoDecoder;
 
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
@@ -137,6 +138,7 @@ public class FlutterPagPlugin implements FlutterPlugin, MethodCallHandler {
         context = binding.getApplicationContext();
         textureRegistry = binding.getTextureRegistry();
         DataLoadHelper.INSTANCE.initDiskCache(context, DataLoadHelper.INSTANCE.DEFAULT_DIS_SIZE);
+        VideoDecoder.SetMaxHardwareDecoderCount(0);
     }
 
 //    public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {

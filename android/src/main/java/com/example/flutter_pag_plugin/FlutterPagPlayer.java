@@ -3,7 +3,6 @@ package com.example.flutter_pag_plugin;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
-import android.graphics.SurfaceTexture;
 import android.view.animation.LinearInterpolator;
 
 import org.libpag.PAGFile;
@@ -83,6 +82,9 @@ public class FlutterPagPlayer extends PAGPlayer {
     }
 
     public void start() {
+        if (isRelease) {
+            return;
+        }
         animator.start();
     }
 
@@ -143,21 +145,22 @@ public class FlutterPagPlayer extends PAGPlayer {
 
     @Override
     public void release() {
-        super.release();
+        if (isRelease) {
+            return;
+        }
+        isRelease = true;
         animator.cancel();
         animator.removeAllUpdateListeners();
         animator.removeAllListeners();
-        //此处如果放入子线程处理，会打印gl的错误日志，挪到主线程
         if (WorkThreadExecutor.multiThread) {
             synchronized (this) {
+                super.release();
                 if (getSurface() != null) getSurface().release();
-
             }
         } else {
+            super.release();
             if (getSurface() != null) getSurface().release();
-
         }
-        isRelease = true;
     }
 
     @Override
@@ -168,9 +171,11 @@ public class FlutterPagPlayer extends PAGPlayer {
         WorkThreadExecutor.getInstance().post(() -> {
             if (WorkThreadExecutor.multiThread) {
                 synchronized (this) {
+                    if (isRelease) return;
                     FlutterPagPlayer.super.flush();
                 }
             } else {
+                if (isRelease) return;
                 FlutterPagPlayer.super.flush();
             }
 
